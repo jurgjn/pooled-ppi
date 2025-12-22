@@ -1,17 +1,17 @@
 [project]
 name = "pooled-ppi"
 version = "0.1-dev"
-description = "Add your description here"
+description = "Computational screening of protein-protein interactions using pooled co-folding"
 readme = "README.md"
 authors = [
     { name = "jurgjn", email = "jurgjn@users.noreply.github.com" }
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "numba>=0.63.1",
-    "pandas>=2.3.3",
-    "scipy>=1.15.3",
-    "tqdm>=4.67.1",
+    "numba",
+    "pandas",
+    "scipy",
+    "tqdm",
 ]
 
 [project.scripts]
