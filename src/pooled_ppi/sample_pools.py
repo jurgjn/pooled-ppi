@@ -142,7 +142,7 @@ def main():
     eprint('--max_pool_size', args.max_pool_size)
     eprint('--max_pools', args.max_pools)
 
-    proteins = pd.read_csv(sys.stdin, sep='\t')#.head(1000)
+    proteins = pd.read_csv(sys.stdin, sep='\s+', names=['seq_id', 'seq_len'])#.head(1000)
     def get_protein_id(ix):
         proteins_id_col = proteins.columns[0]
         return proteins.loc[ix, proteins_id_col]
