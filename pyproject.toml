@@ -1,12 +1,19 @@
 [project]
 name = "pooled-ppi"
-version = "0.1-dev"
+version = "0.1"
 description = "Computational screening of protein-protein interactions using pooled co-folding"
 readme = "README.md"
 authors = [
     { name = "jurgjn", email = "jurgjn@users.noreply.github.com" }
 ]
 requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+]
+license = "License :: OSI Approved :: MIT License"
+license-files = ["LICENSE"]
 dependencies = [
     "numba",
     "pandas",
@@ -16,6 +23,10 @@ dependencies = [
 
 [project.scripts]
 pooled-ppi-sample = "pooled_ppi.sample_pools:main"
+
+[project.urls]
+Homepage = "https://github.com/jurgjn/pooled-ppi"
+Issues = "https://github.com/jurgjn/pooled-ppi/issues"
 
 [build-system]
 requires = ["setuptools>=61"]
