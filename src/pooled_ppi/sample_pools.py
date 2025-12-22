@@ -150,7 +150,7 @@ def main():
     #eprint(proteins)
     
     id_to_ix = proteins.reset_index().set_index(proteins.columns[0])['index'].to_dict()
-    eprint(id_to_ix)
+    #eprint(id_to_ix)
 
     def to_ix_(s):
         return [* map(lambda id_: id_to_ix[id_], s.split('_')) ]
