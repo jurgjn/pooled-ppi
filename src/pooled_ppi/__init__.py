@@ -1,2 +1,6 @@
-def main() -> None:
-    print("Hello from pooled-ppi!")
+
+from . import pooled_predictions, size_correction
+
+from .core import *
+
+GUARANTEED_RANDOM = 4 # https://xkcd.com/221
