@@ -5,6 +5,35 @@ import pandas as pd
 
 import tqdm.contrib.concurrent
 
+def uf(x):
+    return '{:,}'.format(x)
+
+def ul(x):
+    return uf(len(x))
+
+def printsrc(*args, **kwargs):
+    """
+        https://stackoverflow.com/questions/3056048/filename-and-line-number-of-python-script
+        https://stackoverflow.com/questions/3711184/how-to-use-inspect-to-get-the-callers-info-from-callee-in-python
+        https://github.com/snakemake/snakemake/blob/main/snakemake/exceptions.py#L17
+    """
+    #pprint(dir(inspect.currentframe().f_back))
+    #pprint(dir(inspect.getframeinfo(inspect.currentframe().f_back)))
+    frameinfo_ = inspect.getframeinfo(inspect.currentframe().f_back)
+    #pprint(frameinfo_)
+    #pprint(dir(frameinfo_))
+    filename = frameinfo_.filename
+    lineno = frameinfo_.lineno
+    #lineno = workflow.linemaps[filename][ frameinfo_.lineno ]
+    print(f'{os.path.basename(filename)}:{lineno}', *args, **kwargs)
+
+def printlen(x, *args, **kwargs):
+    name_ = inspect.stack()[1][3] #https://stackoverflow.com/questions/5067604/determine-function-name-from-within-that-function-without-using-traceback
+    if name_ != '<module>':
+        print(f'{name_}:', uf(len(x)), *args, **kwargs)
+    else:
+        print(uf(len(x)), *args, **kwargs)
+
 @functools.cache
 def guess_prefix(euler_prefix, local_prefix):
     if os.path.isdir(euler_prefix):
