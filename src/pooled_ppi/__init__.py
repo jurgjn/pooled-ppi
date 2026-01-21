@@ -1,5 +1,5 @@
 
-from . import pooled_predictions, size_correction
+from . import predictions, size_correction
 
 from .core import *
 

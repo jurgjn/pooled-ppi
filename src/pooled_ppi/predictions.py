@@ -32,6 +32,23 @@ def chain_pair_iptm_triu(s):
     tri = np.triu_indices_from(arr, k=1)
     return arr[tri]
 
+def agg_chain_pair_iptms(frame):
+    """Aggregate pairwise iptms (chain_pair_iptm) using different approaches:
+        chain_pair_iptm_best = best-ranked sample
+        chain_pair_iptm_max = max across samples
+        chain_pair_iptm_mean = mean across samples
+    """
+    # np.array([np.array([[1,2], [3,4]]), np.array([[4,3], [2,1]]), np.array([[1,1], [1,1]])]).max(axis=0)
+    chain_pair_iptm_best = as_array(frame.sort_values('ranking_score', ascending=False).head(1)['chain_pair_iptm'].squeeze())
+
+    chain_pair_iptm_list = list(frame['chain_pair_iptm'].map(as_array))
+    chain_pair_iptm_max = np.maximum.reduce(chain_pair_iptm_list)
+
+    chain_pair_iptm_array = np.array(chain_pair_iptm_list)
+    chain_pair_iptm_mean = chain_pair_iptm_array.mean(axis=0)
+
+    return pd.Series([chain_pair_iptm_best, chain_pair_iptm_max, chain_pair_iptm_mean], index=['chain_pair_iptm_best', 'chain_pair_iptm_max', 'chain_pair_iptm_mean'])
+
 def explode_iptms(pools, columns_triu=['chain_pair_iptm']):
     def interactions_(s):
         l_ = list(itertools.combinations(s.split('_'), 2))
@@ -40,6 +57,6 @@ def explode_iptms(pools, columns_triu=['chain_pair_iptm']):
 
     pairs = pd.DataFrame({'ids': pools['pool_id'].map(interactions_)})
     for column in columns_triu:
-        pairs[column] = pools[columns_triu].map(chain_pair_iptm_triu)
+        pairs[column] = pools[column].map(chain_pair_iptm_triu)
 
     return pairs.explode(['ids',] + columns_triu).reset_index(drop=True)

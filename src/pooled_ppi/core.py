@@ -1,8 +1,6 @@
 
 import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
-
-import pandas as pd
-
+import numpy as np, pandas as pd
 import tqdm.contrib.concurrent
 
 def uf(x):
@@ -79,3 +77,10 @@ def parallel_from_records(fn, *iterables, columns):
     parallel_map_ = parallel_map(fn, *iterables)
     # Maybe try & infer columns from iterables (fields argument?)
     return pd.DataFrame.from_records(flatten(parallel_map_), columns=columns)
+
+def as_array(s):
+    if type(s) is str:
+        return np.array(json.loads(s))
+    elif type(s) is list:
+        return np.array(s)
+    return s
