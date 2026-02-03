@@ -49,13 +49,21 @@ def agg_chain_pair_iptms(frame):
 
     return pd.Series([chain_pair_iptm_best, chain_pair_iptm_max, chain_pair_iptm_mean], index=['chain_pair_iptm_best', 'chain_pair_iptm_max', 'chain_pair_iptm_mean'])
 
-def explode_iptms(pools, columns_triu=['chain_pair_iptm']):
+def explode_iptms(pools, columns_keep=[], columns_triu=['chain_pair_iptm']):
+    """
+    pools_id = split by '_' & generate pairwise combinations
+    columns_keep = keep in exploded result, do not change
+    columns_triu = select upper triu
+    """
     def interactions_(s):
         l_ = list(itertools.combinations(s.split('_'), 2))
         #random.shuffle(l_)
         return l_
 
     pairs = pd.DataFrame({'ids': pools['pool_id'].map(interactions_)})
+    for column in columns_keep:
+        pairs[column] = pools[column]
+
     for column in columns_triu:
         pairs[column] = pools[column].map(chain_pair_iptm_triu)
 
