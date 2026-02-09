@@ -12,58 +12,49 @@ from pprint import pprint
 def eprint(*args, **kwargs): # https://stackoverflow.com/questions/5574702/how-do-i-print-to-stderr-in-python
     print(*args, file=sys.stderr, **kwargs)
 
-@numba.jit(nopython=True, nogil=True) # https://github.com/numba/numba/issues/5894#issuecomment-974701551
-def numba_ix(arr, rows, cols):
-    """
-    Numba compatible implementation of arr[np.ix_(rows, cols)] for 2D arrays.
-    :param arr: 2D array to be indexed
-    :param rows: Row indices
-    :param cols: Column indices
-    :return: 2D array with the given rows and columns of the input array
-    """
-    one_d_index = np.zeros(len(rows) * len(cols), dtype=np.int32)
-    for i, r in enumerate(rows):
-        start = i * len(cols)
-        one_d_index[start: start + len(cols)] = cols + arr.shape[1] * r
-
-    arr_1d = arr.reshape((arr.shape[0] * arr.shape[1], 1))
-    slice_1d = np.take(arr_1d, one_d_index)
-    return slice_1d.reshape((len(rows), len(cols)))
+@numba.jit(nopython=True, nogil=True)
+def update_coverage_numba(i, j, sizes, cov, cov_row_sums):
+    if cov[i, j] == 0:
+        val = sizes[i] * sizes[j]
+        cov[i, j] = val
+        cov[j, i] = val
+        cov_row_sums[i] += val
+        cov_row_sums[j] += val
+        return val, 1
+    return 0.0, 0
 
 @numba.jit(nopython=True, nogil=True)
-def calculate_replication_fraction(pool, i, sizes, cov, all, max_size):
-    """
-    Calculate fraction of effort replicated in the current pool if i were to be added
-    """
-    # pool_try is pool with ith protein included
-    pool_try = pool.astype(sizes.dtype)
-    pool_try[i] = 1
-    pool_size = np.multiply(pool_try, sizes).sum()
-    if pool_size > max_size:
-        return 2
-
-    # pool_ix has indices of proteins in the pool - more efficient than the boolean mask as pool has small number of proteins
-    pool_ix = np.where(pool_try)[0]
-
-    #pool_cov = numba_ix(cov, pool_ix, pool_ix)
-    #pool_all = numba_ix(all, pool_ix, pool_ix)
-    #repl_factor = pool_cov.sum() / pool_all.sum()
-    return numba_ix(cov, pool_ix, pool_ix).sum() / numba_ix(all, pool_ix, pool_ix).sum()
+def update_pool_coverage_numba(pool_ix, sizes, cov, cov_row_sums):
+    added_sum = 0.0
+    added_count = 0
+    for idx_r in range(len(pool_ix)):
+        r = pool_ix[idx_r]
+        for idx_c in range(idx_r + 1, len(pool_ix)):
+            c = pool_ix[idx_c]
+            s, c_inc = update_coverage_numba(r, c, sizes, cov, cov_row_sums)
+            added_sum += 2 * s
+            added_count += c_inc
+    return added_sum, added_count
 
 @numba.jit(nopython=True, parallel=True, nogil=True)
-def pool_expand(pool, sizes, cov, all, max_size):
+def pool_expand(pool, pool_ix, sizes, cov, all_row_sums, cov_row_sums, max_size, current_pool_cov_sum, current_pool_all_sum, pool_size_sum):
     """
     Find protein to expand pool while optimising for replication factor
     Returns -1 if nothing can be added
     """
-    repl = np.zeros(sizes.shape[0])
-    for i in numba.prange(sizes.shape[0]):
-        if pool[i]:
-            repl[i] = 2
-        elif cov[i,:].sum() == all[i,:].sum():
-            repl[i] = 2
-        else:
-            repl[i] = calculate_replication_fraction(pool, i, sizes, cov, all, max_size)
+    n = sizes.shape[0]
+    repl = np.full(n, 2.0)
+    for i in numba.prange(n):
+        if not pool[i]:
+            if cov_row_sums[i] < all_row_sums[i]:
+                new_pool_size = pool_size_sum + sizes[i]
+                if new_pool_size <= max_size:
+                    added_cov = 0.0
+                    for j_ix in pool_ix:
+                        added_cov += cov[i, j_ix]
+
+                    added_all = sizes[i] * pool_size_sum
+                    repl[i] = (current_pool_cov_sum + 2 * added_cov) / (current_pool_all_sum + 2 * added_all)
 
     best_i = np.argmin(repl)
     if repl[best_i] < 2:
@@ -72,46 +63,82 @@ def pool_expand(pool, sizes, cov, all, max_size):
         return -1
 
 def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_rng(seed=4)):
-    all = np.outer(sizes, sizes) # interactions "weighted" by the product of their sizes
-    np.fill_diagonal(all, 0)
-    cov = np.zeros(all.shape) # interactions covered by finished pools
+    n = sizes.shape[0]
+    total_size_sum = sizes.sum()
+    all_row_sums = sizes * (total_size_sum - sizes)
+
+    cov = np.zeros((n, n))
+    cov_row_sums = np.zeros(n)
+    total_cov_sum = 0.0
+    total_all_sum = all_row_sums.sum()
+
+    total_cov_count = 0
+    total_all_count = n * (n - 1) // 2
 
     # Return all interactions above max_size as individual two-protein pools
-    for i, j in np.ndindex(all.shape):
-        if (i < j) and (sizes[i] + sizes[j] > max_size):
-            yield(set([i, j]), sizes[i] + sizes[j])
-            cov[i, j] = all[i, j]
-            cov[j, i] = all[j, i]
+    if n < 10000:
+        ii, jj = np.where(np.triu(np.add.outer(sizes, sizes) > max_size, 1))
+        for k in range(len(ii)):
+            i, j = ii[k], jj[k]
+            yield({i, j}, sizes[i] + sizes[j])
+            s, c = update_coverage_numba(i, j, sizes, cov, cov_row_sums)
+            total_cov_sum += 2 * s
+            total_cov_count += c
+    else:
+        for i in range(n):
+            for j in range(i + 1, n):
+                if sizes[i] + sizes[j] > max_size:
+                    yield({i, j}, sizes[i] + sizes[j])
+                    s, c = update_coverage_numba(i, j, sizes, cov, cov_row_sums)
+                    total_cov_sum += 2 * s
+                    total_cov_count += c
 
     for i, j in skip_pairs:
-        cov[i, j] = all[i, j]
-        cov[j, i] = all[j, i]
+        s, c = update_coverage_numba(i, j, sizes, cov, cov_row_sums)
+        total_cov_sum += 2 * s
+        total_cov_count += c
 
-    pool = np.full(sizes.shape, False) # current pool
-    pbar = tqdm.tqdm(total=np.triu(all == all, 1).sum()) # https://github.com/tqdm/tqdm#usage
-    while not np.array_equal(all, cov):
+    pool = np.zeros(n, dtype=np.bool_) # current pool
+    pbar = tqdm.tqdm(total=total_all_count)
+    pbar.update(total_cov_count)
+
+    while total_cov_sum < total_all_sum:
         if pool.sum() == 0: # current pool is empty
             # randomly selected protein with incomplete coverage
-            avail = np.where(all.sum(axis=1) != cov.sum(axis=1))[0] # proteins with incomplete coverage
+            avail = np.where(cov_row_sums < all_row_sums)[0]
+            if len(avail) == 0: break
             avail_choice = rng.choice(avail, 1).squeeze()
             # add to current pool
             pool[avail_choice] = True
+            pool_size_sum = sizes[avail_choice]
+            current_pool_cov_sum = 0.0
+            current_pool_all_sum = 0.0
 
         while True:
-            best_i = pool_expand(pool, sizes, cov, all, max_size)  # Search for a protein to add to the pool minimising the replication factor
+            pool_ix = np.where(pool)[0]
+            best_i = pool_expand(pool, pool_ix, sizes, cov, all_row_sums, cov_row_sums, max_size, current_pool_cov_sum, current_pool_all_sum, pool_size_sum)
             if (best_i >= 0):
+                added_cov = 0.0
+                for j_ix in pool_ix:
+                    added_cov += cov[best_i, j_ix]
+
+                current_pool_cov_sum += 2 * added_cov
+                current_pool_all_sum += 2 * sizes[best_i] * pool_size_sum
+                pool_size_sum += sizes[best_i]
                 pool[best_i] = True # add optimal protein to the current pool
             else:
                 # Cannot increase current pool anymore; yield as-is and reset search with an empty pool
-                pool_ix_ = np.where(pool)[0]
-                pool_set_ = set(map(lambda x: x.item(), pool_ix_))
-                pool_size_ = np.dot(pool, sizes).item()
-                yield(pool_set_, pool_size_)
-                cov[np.ix_(pool_ix_, pool_ix_)] = all[np.ix_(pool_ix_, pool_ix_)] # Update global coverage map
-                pool = np.full(sizes.shape, False) # Reset pool
+                yield(set(pool_ix), pool_size_sum)
+
+                # Update global coverage map
+                before_count = total_cov_count
+                added_sum, added_count = update_pool_coverage_numba(pool_ix, sizes, cov, cov_row_sums)
+                total_cov_sum += added_sum
+                total_cov_count += added_count
+
+                pool = np.zeros(n, dtype=np.bool_) # Reset pool
                 # Update progress bar
-                interactions_covered = np.triu(all == cov, 1).sum()
-                pbar.update(interactions_covered - pbar.n) # https://github.com/tqdm/tqdm/issues/1264
+                pbar.update(total_cov_count - before_count)
                 break
     pbar.close()
 
@@ -142,7 +169,7 @@ def main():
     eprint('--max_pool_size', args.max_pool_size)
     eprint('--max_pools', args.max_pools)
 
-    proteins = pd.read_csv(sys.stdin, sep='\s+', names=['seq_id', 'seq_len'])#.head(1000)
+    proteins = pd.read_csv(sys.stdin, sep=r'\s+', names=['seq_id', 'seq_len'])#.head(1000)
     def get_protein_id(ix):
         proteins_id_col = proteins.columns[0]
         return proteins.loc[ix, proteins_id_col]
@@ -157,7 +184,7 @@ def main():
 
     skip_pairs = []
     if args.init_pools is not None:
-        initial_pools = pd.read_csv(args.init_pools, sep='\s+')
+        initial_pools = pd.read_csv(args.init_pools, sep=r'\s+')
         initial_pools['pool_ix'] = [ *map(to_ix_, initial_pools['pool_id']) ]
         initial_pools['pool_ix_pairs'] = [ *map(lambda pool_ix: list(itertools.combinations(pool_ix, 2)), initial_pools['pool_ix'] )]
         #eprint(initial_pools)
@@ -206,3 +233,6 @@ def main():
     eprint(gen_sum / all_sum, 'length-weighted redundancy factor across all pools') # Should be proportional to the added runtime from the redundancy in the pools
 
     pools[['pool_id', 'pool_size']].to_csv(sys.stdout, sep='\t', index=False)
+
+if __name__ == "__main__":
+    main()
