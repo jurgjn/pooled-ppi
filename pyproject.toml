@@ -15,6 +15,7 @@ classifiers = [
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
+    "af3io",
     "numba",
     "pandas",
     "scipy",
