@@ -1,6 +1,6 @@
 [project]
 name = "pooled-ppi"
-version = "0.2-dev"
+version = "26.0-dev"
 description = "Computational screening of protein-protein interactions using pooled co-folding"
 readme = "README.md"
 authors = [
