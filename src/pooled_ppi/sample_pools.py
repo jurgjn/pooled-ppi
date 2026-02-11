@@ -76,16 +76,17 @@ def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_
     np.fill_diagonal(all, 0)
     cov = np.zeros(all.shape) # interactions covered by finished pools
 
-    # Return all interactions above max_size as individual two-protein pools
-    for i, j in np.ndindex(all.shape):
-        if (i < j) and (sizes[i] + sizes[j] > max_size):
-            yield(set([i, j]), sizes[i] + sizes[j])
-            cov[i, j] = all[i, j]
-            cov[j, i] = all[j, i]
-
+    # Mark interactions in `init_pools` as completed
     for i, j in skip_pairs:
         cov[i, j] = all[i, j]
         cov[j, i] = all[j, i]
+
+    # Return all interactions above max_size as individual two-protein pools
+    for i, j in np.ndindex(all.shape):
+        if (i < j) and (sizes[i] + sizes[j] > max_size) and (cov[i, j] == 0):
+            yield(set([i, j]), sizes[i] + sizes[j])
+            cov[i, j] = all[i, j]
+            cov[j, i] = all[j, i]
 
     pool = np.full(sizes.shape, False) # current pool
     pbar = tqdm.tqdm(total=np.triu(all == all, 1).sum()) # https://github.com/tqdm/tqdm#usage
