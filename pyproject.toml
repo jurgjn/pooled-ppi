@@ -19,6 +19,7 @@ dependencies = [
     "pandas",
     "scipy",
     "tqdm",
+    "snakemake",
 ]
 
 [project.scripts]
