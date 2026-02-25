@@ -1,5 +1,5 @@
 
-from . import predictions, size_correction
+from . import predictions, size_correction, string_db
 
 from .core import *
 
