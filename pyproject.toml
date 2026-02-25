@@ -16,6 +16,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "af3io",
+    "cached-path",
     "numba",
     "pandas",
     "scipy",
