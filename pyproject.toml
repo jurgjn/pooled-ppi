@@ -16,9 +16,12 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "af3io",
+    "biopython",
     "cached-path",
+    "matplotlib",
     "numba",
     "pandas",
+    "seaborn",
     "scipy",
     "tqdm",
     "snakemake",
