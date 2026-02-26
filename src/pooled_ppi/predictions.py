@@ -104,7 +104,7 @@ class PooledPredictionsDb:
         bait_prey = pd.concat([pairs_fwd, pairs_rev], axis=0)
         return bait_prey
 
-    def get_chains_pdb(self, ids):
+    def save_ids(self, ids, file):
         parser = Bio.PDB.PDBParser(QUIET=True)
         struct0 = None
         with foldcomp.open(os.path.join(self.path, 'predictions-db/predictions-db'), ids=ids) as db:
@@ -119,15 +119,4 @@ class PooledPredictionsDb:
                 
         pdbio = Bio.PDB.PDBIO()
         pdbio.set_structure(struct0)
-        str_ = io.StringIO()
-        pdbio.save(str_)
-        str_.seek(0)
-        return str_.read()
-
-    def get_pair_pdb(self, name, pair_id1, pair_id2):
-        key1 = f'{name}_{pair_id1}'
-        key2 = f'{name}_{pair_id2}'
-        ids = [key1, key2]
-        print(ids)
-
-        return chains[0]
+        pdbio.save(file)
