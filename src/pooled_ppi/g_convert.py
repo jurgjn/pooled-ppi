@@ -36,13 +36,16 @@ def proxy_mapping(l, r, organism='hsapiens', target='ENSG', v=False):
     merge = l_query.merge(r_query, on=target)
     if v: print(f'{ul(merge)} after merge')
 
+    merge = merge[[l.name, r.name]].drop_duplicates(keep='first')
+    if v: print(f'{ul(merge)} after shared dedup')
+
     merge = merge.drop_duplicates(subset=[l.name], keep=False)
-    if v: print(f'{ul(merge)} left dedup')
+    if v: print(f'{ul(merge)} after left dedup')
 
     merge = merge.drop_duplicates(subset=[r.name], keep=False)
-    if v: print(f'{ul(merge)} right dedup')
+    if v: print(f'{ul(merge)} after right dedup')
 
-    return merge.drop([target], axis=1).reset_index(drop=True)
+    return merge.reset_index(drop=True)
 
 def proxy_merge(left, right, left_on, right_on, right_prefix=None, organism='hsapiens', target='ENSG', v=False):
     mapping = proxy_mapping(left[left_on], right[right_on], organism, target, v)
