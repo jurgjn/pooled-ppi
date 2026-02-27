@@ -1,5 +1,5 @@
 
-from . import predictions, size_correction, string_db
+from . import g_convert, predictions, size_correction, string_db
 from .predictions import PooledPredictionsDb
 from .core import *
 
