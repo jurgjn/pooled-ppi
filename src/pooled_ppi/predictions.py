@@ -88,8 +88,8 @@ class PooledPredictionsDb:
     def __init__(self, path='/data'):
         self.path = path
         self.pairs = pd.read_parquet(os.path.join(self.path, 'predictions/alphafold3_summary_pairs.parquet'))
-        self.pairs['uniprot_id1'] = self.pairs['pair_id1'].str.upper()
-        self.pairs['uniprot_id2'] = self.pairs['pair_id2'].str.upper()
+        self.pairs['uniprot_id1'] = self.pairs['af3_id1'].str.upper()
+        self.pairs['uniprot_id2'] = self.pairs['af3_id2'].str.upper()
         print(f'{ul(self.pairs)} pairs / {uf(self.pairs["name"].nunique())} pools')
 
     def bait_prey(self):
