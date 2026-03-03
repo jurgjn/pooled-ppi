@@ -22,6 +22,7 @@ import af3io
 
 from .core import *
 
+'''
 class PooledPredictions:
     def __init__(self, path):
         # find/assign name (from path)
@@ -30,6 +31,58 @@ class PooledPredictions:
         self.predictions = pd.DataFrame({'id': ids})
         self.predictions['zip'] = self.predictions['id'].map(lambda id: os.path.join(path, f'{id}.zip'))
         self.summary_confidences = pd.concat(parallel_map(af3io.predictions.read_summary_confidences, self.predictions['zip']), axis=0).reset_index(drop=True)
+'''
+@functools.cache
+def glob_alphafold3_input_jsons():
+    input_jsons = pd.DataFrame({'input_json_path': list(glob.iglob(f'**/alphafold3_jsons/*.json', recursive=True))}).sort_values(['input_json_path']).reset_index(drop=True)
+    input_jsons['name'] = input_jsons['input_json_path'].map(lambda path: str(Path(path).stem))
+    input_jsons_set = set(input_jsons['name'])
+    return input_jsons_set
+
+@functools.cache
+def glob_alphafold3_predictions():
+    predictions = pd.DataFrame({'predictions_path': list(glob.iglob(f'**/alphafold3_predictions/*.zip', recursive=True))})
+    predictions['name'] = predictions['predictions_path'].map(lambda path: str(Path(path).stem))
+    predictions_set = set(predictions['name'])
+    return predictions_set
+
+class PooledPredictions:
+    def __init__(self, pools, sizes):
+        self.sizes = sizes
+        self.pools = pools
+        if not('pool_hash' in self.pools.columns):
+            self.pools['pool_hash'] = self.pools['pool_id'].map(lambda pool_id: hashlib.sha1(pool_id.encode()).hexdigest())
+    
+    def pool_coverage(self):
+        def generate_interactions(ids):
+            # Generate all possible interactions between ids
+            return set(itertools.combinations(sorted(ids), 2))
+
+        printlen(self.sizes, 'proteins')
+        printlen(self.pools, 'pools')
+
+        all = set(generate_interactions(self.sizes.af3_id))
+        printlen(all, 'possible interactions')
+
+        gen = set()
+        for i, r in self.pools.iterrows():
+            pool_interactions = generate_interactions(r.pool_id.split('_'))
+            gen |= pool_interactions
+
+        printlen(gen, 'possible interactions')
+
+        printlen(all - gen, 'interactions missing')
+        printlen(gen - all, 'interactions extra')
+
+    def glob_alphafold3(self):
+        self.pools['is_queued'] = self.pools['pool_hash'].isin(glob_alphafold3_input_jsons())
+        self.pools['is_predicted'] = self.pools['pool_hash'].isin(glob_alphafold3_predictions())
+        self.pools['is_missing'] = (~self.pools['is_predicted']) & (~self.pools['is_queued'])
+
+        printlen(self.pools, 'pools total')
+        printlen(self.pools.query('is_predicted'), 'pools with finished predictions')
+        printlen(self.pools.query('~is_predicted & is_queued'), 'pools in the queue')
+        printlen(self.pools.query('is_missing'), 'pools missing')
 
 def read_summary_confidences(path):
     pp = PooledPredictions(path)
