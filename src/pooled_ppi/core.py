@@ -3,6 +3,8 @@ import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect,
 import numpy as np, pandas as pd
 import tqdm.contrib.concurrent
 
+GUARANTEED_RANDOM = 4 # https://xkcd.com/221
+
 def uf(x):
     return '{:,}'.format(x)
 
