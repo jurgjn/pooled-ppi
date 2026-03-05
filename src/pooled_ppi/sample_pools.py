@@ -158,7 +158,7 @@ def main():
 
     skip_pairs = []
     if args.init_pools is not None:
-        initial_pools = pd.read_csv(args.init_pools, sep='\s+')
+        initial_pools = pd.read_csv(args.init_pools, sep=r'\s+')
         initial_pools['pool_ix'] = [ *map(to_ix_, initial_pools['pool_id']) ]
         initial_pools['pool_ix_pairs'] = [ *map(lambda pool_ix: list(itertools.combinations(pool_ix, 2)), initial_pools['pool_ix'] )]
         #eprint(initial_pools)
