@@ -1,209 +1,224 @@
 #!/usr/bin/env python
 """
 Generate pools as in https://doi.org/10.1101/2025.07.01.662654 except that interactions are weighted by the product of the protein sizes
-
-For Mgen, this leads to 1,791 pools generated in 29 seconds (vs 2,027 pools)
-
+Optimised for maximum performance using incremental updates and Numba JIT.
 """
 
 import argparse, itertools, sys, numpy as np, pandas as pd, tqdm, numba
-from pprint import pprint
 
-def eprint(*args, **kwargs): # https://stackoverflow.com/questions/5574702/how-do-i-print-to-stderr-in-python
+def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
-@numba.jit(nopython=True, nogil=True) # https://github.com/numba/numba/issues/5894#issuecomment-974701551
-def numba_ix(arr, rows, cols):
-    """
-    Numba compatible implementation of arr[np.ix_(rows, cols)] for 2D arrays.
-    :param arr: 2D array to be indexed
-    :param rows: Row indices
-    :param cols: Column indices
-    :return: 2D array with the given rows and columns of the input array
-    """
-    one_d_index = np.zeros(len(rows) * len(cols), dtype=np.int32)
-    for i, r in enumerate(rows):
-        start = i * len(cols)
-        one_d_index[start: start + len(cols)] = cols + arr.shape[1] * r
+@numba.njit(parallel=True, nogil=True)
+def calculate_uncovered_weights(sizes, covered):
+    """Calculate the sum of uncovered interaction weights for each protein."""
+    n = sizes.shape[0]
+    weights = np.zeros(n, dtype=np.float64)
+    for i in numba.prange(n):
+        w = 0.0
+        for j in range(n):
+            if i != j and not covered[i, j]:
+                w += sizes[i] * sizes[j]
+        weights[i] = w
+    return weights
 
-    arr_1d = arr.reshape((arr.shape[0] * arr.shape[1], 1))
-    slice_1d = np.take(arr_1d, one_d_index)
-    return slice_1d.reshape((len(rows), len(cols)))
+@numba.njit(nogil=True)
+def get_initial_large_pools_numba(sizes, covered, max_size):
+    """Find pairs of proteins that exceed max_size and are not yet covered."""
+    n = sizes.shape[0]
+    res = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if sizes[i] + sizes[j] > max_size and not covered[i, j]:
+                res.append((i, j))
+    return res
 
-@numba.jit(nopython=True, nogil=True)
-def calculate_replication_fraction(pool, i, sizes, cov, all, max_size):
-    """
-    Calculate fraction of effort replicated in the current pool if i were to be added
-    """
-    # pool_try is pool with ith protein included
-    pool_try = pool.astype(sizes.dtype)
-    pool_try[i] = 1
-    pool_size = np.multiply(pool_try, sizes).sum()
-    if pool_size > max_size:
-        return 2
+@numba.njit(parallel=True, nogil=True)
+def find_best_i_parallel(pool_mask, sizes, pool_C, current_pool_sum_cov, current_pool_sum_all, current_pool_size, max_size, uncovered_weight_per_protein):
+    n = sizes.shape[0]
+    repls = np.full(n, 2.1, dtype=np.float64)
+    for i in numba.prange(n):
+        if not pool_mask[i] and uncovered_weight_per_protein[i] > 1e-6 and current_pool_size + sizes[i] <= max_size:
+            denom = current_pool_sum_all + 2.0 * sizes[i] * current_pool_size
+            if denom > 0:
+                repls[i] = (current_pool_sum_cov + 2.0 * sizes[i] * pool_C[i]) / denom
+            else:
+                repls[i] = 0.0
 
-    # pool_ix has indices of proteins in the pool - more efficient than the boolean mask as pool has small number of proteins
-    pool_ix = np.where(pool_try)[0]
-
-    #pool_cov = numba_ix(cov, pool_ix, pool_ix)
-    #pool_all = numba_ix(all, pool_ix, pool_ix)
-    #repl_factor = pool_cov.sum() / pool_all.sum()
-    return numba_ix(cov, pool_ix, pool_ix).sum() / numba_ix(all, pool_ix, pool_ix).sum()
-
-@numba.jit(nopython=True, parallel=True, nogil=True)
-def pool_expand(pool, sizes, cov, all, max_size):
-    """
-    Find protein to expand pool while optimising for replication factor
-    Returns -1 if nothing can be added
-    """
-    repl = np.zeros(sizes.shape[0])
-    for i in numba.prange(sizes.shape[0]):
-        if pool[i]:
-            repl[i] = 2
-        elif cov[i,:].sum() == all[i,:].sum():
-            repl[i] = 2
-        else:
-            repl[i] = calculate_replication_fraction(pool, i, sizes, cov, all, max_size)
-
-    best_i = np.argmin(repl)
-    if repl[best_i] < 2:
-        return best_i
-    else:
+    best_i = np.argmin(repls)
+    if repls[best_i] > 2.0:
         return -1
+    return best_i
+
+@numba.njit(parallel=True, nogil=True)
+def update_pool_C_parallel(pool_C, covered, best_i, size_best_i):
+    n = pool_C.shape[0]
+    for i in numba.prange(n):
+        if covered[i, best_i]:
+            pool_C[i] += size_best_i
+
+@numba.njit(nogil=True)
+def update_coverage_numba(pool_ix, covered, sizes, uncovered_weight_per_protein):
+    """Mark all interactions within the finished pool as covered."""
+    newly_covered_count = 0
+    for i_idx in range(len(pool_ix)):
+        p1 = pool_ix[i_idx]
+        for j_idx in range(i_idx + 1, len(pool_ix)):
+            p2 = pool_ix[j_idx]
+            if not covered[p1, p2]:
+                covered[p1, p2] = 1
+                covered[p2, p1] = 1
+                weight = sizes[p1] * sizes[p2]
+                uncovered_weight_per_protein[p1] -= weight
+                uncovered_weight_per_protein[p2] -= weight
+                newly_covered_count += 1
+    return newly_covered_count
 
 def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_rng(seed=4)):
-    all = np.outer(sizes, sizes) # interactions "weighted" by the product of their sizes
-    np.fill_diagonal(all, 0)
-    cov = np.zeros(all.shape) # interactions covered by finished pools
+    n = len(sizes)
+    covered = np.zeros((n, n), dtype=np.uint8)
+    np.fill_diagonal(covered, 1)
 
-    # Mark interactions in `init_pools` as completed
     for i, j in skip_pairs:
-        cov[i, j] = all[i, j]
-        cov[j, i] = all[j, i]
+        if i < n and j < n:
+            covered[i, j] = 1
+            covered[j, i] = 1
 
-    # Return all interactions above max_size as individual two-protein pools
-    for i, j in np.ndindex(all.shape):
-        if (i < j) and (sizes[i] + sizes[j] > max_size) and (cov[i, j] == 0):
-            yield(set([i, j]), sizes[i] + sizes[j])
-            cov[i, j] = all[i, j]
-            cov[j, i] = all[j, i]
+    uncovered_weight_per_protein = calculate_uncovered_weights(sizes, covered)
 
-    pool = np.full(sizes.shape, False) # current pool
-    pbar = tqdm.tqdm(total=np.triu(all == all, 1).sum()) # https://github.com/tqdm/tqdm#usage
-    while not np.array_equal(all, cov):
-        if pool.sum() == 0: # current pool is empty
-            # randomly selected protein with incomplete coverage
-            avail = np.where(all.sum(axis=1) != cov.sum(axis=1))[0] # proteins with incomplete coverage
-            avail_choice = rng.choice(avail, 1).squeeze()
-            # add to current pool
-            pool[avail_choice] = True
+    # Initial large pairs
+    large_pairs = get_initial_large_pools_numba(sizes, covered, max_size)
+    for i, j in large_pairs:
+        yield(set([i, j]), sizes[i] + sizes[j])
+        covered[i, j] = 1
+        covered[j, i] = 1
+        weight = sizes[i] * sizes[j]
+        uncovered_weight_per_protein[i] -= weight
+        uncovered_weight_per_protein[j] -= weight
+
+    total_interactions = n * (n - 1) // 2
+    covered_interactions = int(np.sum(covered) // 2 - n // 2)
+
+    pbar = tqdm.tqdm(total=total_interactions)
+    pbar.update(covered_interactions)
+
+    pool_mask = np.zeros(n, dtype=np.bool_)
+    pool_C = np.zeros(n, dtype=np.float64)
+
+    while covered_interactions < total_interactions:
+        avail = np.where(uncovered_weight_per_protein > 1e-6)[0]
+        if len(avail) == 0:
+            break
+        avail_choice = rng.choice(avail)
+
+        pool_mask.fill(False)
+        pool_mask[avail_choice] = True
+
+        # Initialise pool_C for the first protein
+        pool_C.fill(0)
+        update_pool_C_parallel(pool_C, covered, avail_choice, sizes[avail_choice])
+
+        current_pool_size = sizes[avail_choice]
+        current_pool_sum_cov = 0.0
+        current_pool_sum_all = 0.0
 
         while True:
-            best_i = pool_expand(pool, sizes, cov, all, max_size)  # Search for a protein to add to the pool minimising the replication factor
-            if (best_i >= 0):
-                pool[best_i] = True # add optimal protein to the current pool
-            else:
-                # Cannot increase current pool anymore; yield as-is and reset search with an empty pool
-                pool_ix_ = np.where(pool)[0]
-                pool_set_ = set(map(lambda x: x.item(), pool_ix_))
-                pool_size_ = np.dot(pool, sizes).item()
-                yield(pool_set_, pool_size_)
-                cov[np.ix_(pool_ix_, pool_ix_)] = all[np.ix_(pool_ix_, pool_ix_)] # Update global coverage map
-                pool = np.full(sizes.shape, False) # Reset pool
-                # Update progress bar
-                interactions_covered = np.triu(all == cov, 1).sum()
-                pbar.update(interactions_covered - pbar.n) # https://github.com/tqdm/tqdm/issues/1264
+            best_i = find_best_i_parallel(
+                pool_mask, sizes, pool_C, current_pool_sum_cov,
+                current_pool_sum_all, current_pool_size, max_size, uncovered_weight_per_protein
+            )
+            if best_i == -1:
                 break
+
+            current_pool_sum_cov += 2.0 * sizes[best_i] * pool_C[best_i]
+            current_pool_sum_all += 2.0 * sizes[best_i] * current_pool_size
+            current_pool_size += sizes[best_i]
+            pool_mask[best_i] = True
+            update_pool_C_parallel(pool_C, covered, best_i, sizes[best_i])
+
+        pool_ix = np.where(pool_mask)[0]
+        yield (set(pool_ix.tolist()), float(current_pool_size))
+
+        newly_covered = update_coverage_numba(pool_ix, covered, sizes, uncovered_weight_per_protein)
+        covered_interactions += newly_covered
+        pbar.update(newly_covered)
+
     pbar.close()
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Sample random pools minimising overlap"
-    )
-    parser.add_argument(
-        "--init_pools", 
-        "-p", 
-        help="Pools to skip"
-    )
-    parser.add_argument(
-        "--max_pool_size", 
-        "-s", 
-        help="Maximum size for pool",
-        default=5120,
-        type=int,
-    )
-    parser.add_argument(
-        "--max_pools", 
-        "-n", 
-        help="Maximum number of pools to sample",
-        type=int,
-    )
+    parser = argparse.ArgumentParser(description="Sample random pools minimising overlap")
+    parser.add_argument("--init_pools", "-p", help="Pools to skip")
+    parser.add_argument("--max_pool_size", "-s", help="Maximum size for pool", default=5120, type=int)
+    parser.add_argument("--max_pools", "-n", help="Maximum number of pools to sample", type=int)
     args = parser.parse_args()
-    eprint('--init_pools', args.init_pools)
-    eprint('--max_pool_size', args.max_pool_size)
-    eprint('--max_pools', args.max_pools)
 
-    proteins = pd.read_csv(sys.stdin, sep=r'\s+', names=['seq_id', 'seq_len'])#.head(1000)
-    def get_protein_id(ix):
-        proteins_id_col = proteins.columns[0]
-        return proteins.loc[ix, proteins_id_col]
-
-    #eprint(proteins)
-    
-    id_to_ix = proteins.reset_index().set_index(proteins.columns[0])['index'].to_dict()
-    #eprint(id_to_ix)
-
-    def to_ix_(s):
-        return [* map(lambda id_: id_to_ix[id_], s.split('_')) ]
+    # Read input protein information from stdin
+    proteins = pd.read_csv(sys.stdin, sep=r'\s+', names=['seq_id', 'seq_len'])
+    protein_ids = proteins.iloc[:, 0].tolist()
+    protein_id_to_ix = {id_: i for i, id_ in enumerate(protein_ids)}
 
     skip_pairs = []
     if args.init_pools is not None:
         initial_pools = pd.read_csv(args.init_pools, sep=r'\s+')
-        initial_pools['pool_ix'] = [ *map(to_ix_, initial_pools['pool_id']) ]
-        initial_pools['pool_ix_pairs'] = [ *map(lambda pool_ix: list(itertools.combinations(pool_ix, 2)), initial_pools['pool_ix'] )]
-        #eprint(initial_pools)
-        def flatten(xss):
-            return [x for xs in xss for x in xs]
-        skip_pairs = flatten(initial_pools['pool_ix_pairs'].tolist())
-        #pprint(skip_pairs)
+        for pool_id in initial_pools['pool_id']:
+            ids = pool_id.split('_')
+            ixs = [protein_id_to_ix[id_] for id_ in ids if id_ in protein_id_to_ix]
+            if len(ixs) >= 2:
+                skip_pairs.extend(itertools.combinations(sorted(ixs), 2))
 
-    #numba.set_num_threads(64) # as things are, multiple threads slow down the code instead of speeding up..
     eprint(numba.get_num_threads(), 'threads available for numba')
-    eprint(len(proteins), 'proteins in input')
+    eprint(len(protein_ids), 'proteins in input')
 
-    sizes = proteins['seq_len'].values
-    pools = pd.DataFrame.from_records(itertools.islice(generate_pools(sizes, max_size=args.max_pool_size, skip_pairs=skip_pairs), args.max_pools), columns=['pool_ixs', 'pool_size'])
-    pools['pool_ids'] = pools['pool_ixs'].map(lambda ixs: set(map(get_protein_id, ixs)))
-    pools['pool_id'] = pools['pool_ids'].map(lambda ids: '_'.join(sorted(ids)))
+    sizes = proteins['seq_len'].values.astype(np.float64)
 
-    eprint(len(pools), 'pools generated')
+    pools_data_id = []
+    pools_data_size = []
+    pools_data_ixs = []
 
-    def generate_interactions(ids):
-        # Generate all possible interactions between ids
-        return set(itertools.combinations(sorted(ids), 2))
+    # Generate pools using the optimized algorithm
+    pool_gen = generate_pools(sizes, max_size=args.max_pool_size, skip_pairs=skip_pairs)
+    if args.max_pools is not None:
+        pool_gen = itertools.islice(pool_gen, args.max_pools)
 
-    # Sanity check - generate a list of all interactions & count size
-    all = set(generate_interactions(range(len(sizes))))
-    all_sum = 0
-    for i, j in all:
-        all_sum += sizes[i] * sizes[j]
+    for pool_ixs, pool_size in pool_gen:
+        pool_ids_subset = sorted([protein_ids[ix] for ix in pool_ixs])
+        pools_data_id.append('_'.join(pool_ids_subset))
+        pools_data_size.append(pool_size)
+        pools_data_ixs.append(list(pool_ixs))
 
-    # Sanity check - compare to analytic adhoc formula
-    ref_sum = (sum(sizes)**2 - sum(sizes*sizes)) / 2
-    assert all_sum == ref_sum
+    if not pools_data_id:
+        eprint('No pools generated')
+        return
 
-    # Sanity check - generate list of interactions from the pools, compare to reference list
-    gen = set()
-    gen_sum = 0
-    for i, r in pools.iterrows():
-        pool_interactions = generate_interactions(r.pool_ixs)
-        gen |= pool_interactions
-        for i, j in pool_interactions:
-            gen_sum += sizes[i] * sizes[j]
+    eprint(len(pools_data_id), 'pools generated')
 
-    eprint(len(all), 'interactions expected')
-    eprint(len(gen), 'interactions across all pools generated')
-    eprint(gen == all, 'pools include all possible interactions')
-    eprint(gen_sum / all_sum, 'length-weighted redundancy factor across all pools') # Should be proportional to the added runtime from the redundancy in the pools
+    # Redundancy and completeness sanity checks (optimised)
+    all_interactions_count = len(sizes) * (len(sizes) - 1) // 2
+    all_sum = (np.sum(sizes)**2 - np.sum(sizes**2)) / 2
 
-    pools[['pool_id', 'pool_size']].to_csv(sys.stdout, sep='\t', index=False)
+    # Check if all possible interactions are covered across all pools
+    unique_pairs_count = 0
+    covered_check = np.zeros((len(sizes), len(sizes)), dtype=np.uint8)
+    actual_gen_sum = 0
+    for pool_ixs in pools_data_ixs:
+        for i, p1 in enumerate(pool_ixs):
+            for p2 in pool_ixs[i+1:]:
+                if p1 < p2:
+                    low, high = p1, p2
+                else:
+                    low, high = p2, p1
+                if not covered_check[low, high]:
+                    covered_check[low, high] = 1
+                    unique_pairs_count += 1
+                actual_gen_sum += sizes[p1] * sizes[p2]
+
+    eprint(all_interactions_count, 'interactions expected')
+    eprint(unique_pairs_count, 'interactions across all pools generated')
+    eprint(unique_pairs_count == all_interactions_count, 'pools include all possible interactions')
+    eprint(actual_gen_sum / all_sum, 'length-weighted redundancy factor across all pools')
+
+    # Output generated pools to stdout
+    pd.DataFrame({'pool_id': pools_data_id, 'pool_size': pools_data_size}).to_csv(sys.stdout, sep='\t', index=False)
+
+if __name__ == "__main__":
+    main()
