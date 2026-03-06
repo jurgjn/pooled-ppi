@@ -45,6 +45,7 @@ def find_best_i_parallel(pool_mask, sizes, pool_C, current_pool_size, max_size):
             scores[i] = (current_pool_size - pool_C[i])
 
     best_i = np.argmax(scores)
+
     if scores[best_i] <= 0:
         return -1
     return best_i
