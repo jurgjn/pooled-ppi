@@ -62,14 +62,14 @@ class PooledPredictions:
         printlen(self.pools, 'pools')
 
         all = set(generate_interactions(self.sizes.af3_id))
-        printlen(all, 'possible interactions')
+        printlen(all, 'interactions possible based on the list of proteins')
 
         gen = set()
         for i, r in self.pools.iterrows():
             pool_interactions = generate_interactions(r.pool_id.split('_'))
             gen |= pool_interactions
 
-        printlen(gen, 'possible interactions')
+        printlen(gen, 'interactions in pools')
 
         printlen(all - gen, 'interactions missing')
         printlen(gen - all, 'interactions extra')
