@@ -18,6 +18,7 @@ dependencies = [
     "af3io",
     "biopython",
     "cached-path",
+    "foldcomp",
     "matplotlib",
     "numba",
     "pandas",
