@@ -34,19 +34,19 @@ def get_initial_large_pools_numba(sizes, covered, max_size):
     return res
 
 @numba.njit(parallel=True, nogil=True)
-def find_best_i_parallel(pool_mask, sizes, pool_C, current_pool_sum_cov, current_pool_sum_all, current_pool_size, max_size, uncovered_weight_per_protein):
+def find_best_i_parallel(pool_mask, sizes, pool_C, current_pool_size, max_size):
     n = sizes.shape[0]
-    repls = np.full(n, 2.1, dtype=np.float64)
+    scores = np.full(n, -1e18, dtype=np.float64)
     for i in numba.prange(n):
-        if not pool_mask[i] and uncovered_weight_per_protein[i] > 1e-6 and current_pool_size + sizes[i] <= max_size:
-            denom = current_pool_sum_all + 2.0 * sizes[i] * current_pool_size
-            if denom > 0:
-                repls[i] = (current_pool_sum_cov + 2.0 * sizes[i] * pool_C[i]) / denom
-            else:
-                repls[i] = 0.0
+        if not pool_mask[i] and current_pool_size + sizes[i] <= max_size:
+            # Score: newly covered interaction weight per unit size of protein i.
+            # Newly covered interaction weight for adding i to current pool is 2 * sizes[i] * (current_pool_size - pool_C[i])
+            # Dividing by sizes[i] results in (current_pool_size - pool_C[i])
+            scores[i] = (current_pool_size - pool_C[i])
 
-    best_i = np.argmin(repls)
-    if repls[best_i] > 2.0:
+    best_i = np.argmax(scores)
+
+    if scores[best_i] <= 0:
         return -1
     return best_i
 
@@ -109,7 +109,9 @@ def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_
         avail = np.where(uncovered_weight_per_protein > 1e-6)[0]
         if len(avail) == 0:
             break
-        avail_choice = rng.choice(avail)
+
+        # Greedy: pick protein with most uncovered interaction weight
+        avail_choice = avail[np.argmax(uncovered_weight_per_protein[avail])]
 
         pool_mask.fill(False)
         pool_mask[avail_choice] = True
@@ -119,19 +121,14 @@ def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_
         update_pool_C_parallel(pool_C, covered, avail_choice, sizes[avail_choice])
 
         current_pool_size = sizes[avail_choice]
-        current_pool_sum_cov = 0.0
-        current_pool_sum_all = 0.0
 
         while True:
             best_i = find_best_i_parallel(
-                pool_mask, sizes, pool_C, current_pool_sum_cov,
-                current_pool_sum_all, current_pool_size, max_size, uncovered_weight_per_protein
+                pool_mask, sizes, pool_C, current_pool_size, max_size
             )
             if best_i == -1:
                 break
 
-            current_pool_sum_cov += 2.0 * sizes[best_i] * pool_C[best_i]
-            current_pool_sum_all += 2.0 * sizes[best_i] * current_pool_size
             current_pool_size += sizes[best_i]
             pool_mask[best_i] = True
             update_pool_C_parallel(pool_C, covered, best_i, sizes[best_i])
