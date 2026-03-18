@@ -32,19 +32,20 @@ class PooledPredictions:
         self.predictions['zip'] = self.predictions['id'].map(lambda id: os.path.join(path, f'{id}.zip'))
         self.summary_confidences = pd.concat(parallel_map(af3io.predictions.read_summary_confidences, self.predictions['zip']), axis=0).reset_index(drop=True)
 '''
-@functools.cache
-def glob_alphafold3_input_jsons():
-    input_jsons = pd.DataFrame({'input_json_path': list(glob.iglob(f'**/alphafold3_jsons/*.json', recursive=True))}).sort_values(['input_json_path']).reset_index(drop=True)
-    input_jsons['name'] = input_jsons['input_json_path'].map(lambda path: str(Path(path).stem))
-    input_jsons_set = set(input_jsons['name'])
-    return input_jsons_set
 
-@functools.cache
-def glob_alphafold3_predictions():
-    predictions = pd.DataFrame({'predictions_path': list(glob.iglob(f'**/alphafold3_predictions/*.zip', recursive=True))})
-    predictions['name'] = predictions['predictions_path'].map(lambda path: str(Path(path).stem))
-    predictions_set = set(predictions['name'])
-    return predictions_set
+def glob_alphafold3_input_jsons(path):
+    predictions = pd.DataFrame({'path': list(path.resolve().glob(f'**/alphafold3_jsons/*.json'))}).sort_values(['path']).reset_index(drop=True)
+    predictions['name'] = predictions['path'].map(lambda path: str(Path(path).stem))
+    predictions['batch_id'] = predictions['path'].map(lambda path_: str(Path(path_).parent.parent.relative_to(path.resolve())))
+    printlen(predictions, 'input JSONs total')
+    return predictions[['name', 'batch_id', 'path']]
+
+def glob_alphafold3_predictions(path):
+    predictions = pd.DataFrame({'path': list(path.resolve().glob(f'**/alphafold3_predictions/*.zip'))}).sort_values(['path']).reset_index(drop=True)
+    predictions['name'] = predictions['path'].map(lambda path: str(Path(path).stem))
+    predictions['batch_id'] = predictions['path'].map(lambda path_: str(Path(path_).parent.parent.relative_to(path.resolve())))
+    printlen(predictions, 'pooled predictions from', path.resolve())
+    return predictions[['name', 'batch_id', 'path']]
 
 class PooledPredictions:
     def __init__(self, pools, sizes):
@@ -74,9 +75,21 @@ class PooledPredictions:
         printlen(all - gen, 'interactions missing')
         printlen(gen - all, 'interactions extra')
 
-    def glob_alphafold3(self):
-        self.pools['is_queued'] = self.pools['pool_hash'].isin(glob_alphafold3_input_jsons())
-        self.pools['is_predicted'] = self.pools['pool_hash'].isin(glob_alphafold3_predictions())
+    def glob_alphafold3_status(self):
+        input_jsons = glob_alphafold3_input_jsons(Path().resolve())
+        printlen(input_jsons, 'input JSONs total')
+        self.input_jsons = input_jsons.merge(self.pools, left_on='name', right_on='pool_hash')[['batch_id', 'name', 'pool_id', 'pool_size', 'path']]
+        printlen(self.input_jsons, 'pools with an input JSON')
+
+        predictions = glob_alphafold3_predictions(Path().resolve())
+        printlen(predictions, 'predictions total')
+        self.predictions = predictions.merge(self.pools, left_on='name', right_on='pool_hash')[['batch_id', 'name', 'pool_id', 'pool_size', 'path']]
+        printlen(self.predictions, 'pools with at least one prediction')
+
+        has_input_json_ = set(self.input_jsons['name'])
+        has_prediction_ = set(self.predictions['name'])
+        self.pools['is_queued'] = self.pools['pool_hash'].isin(has_input_json_)
+        self.pools['is_predicted'] = self.pools['pool_hash'].isin(has_prediction_)
         self.pools['is_missing'] = (~self.pools['is_predicted']) & (~self.pools['is_queued'])
 
         printlen(self.pools, 'pools total')
@@ -84,9 +97,9 @@ class PooledPredictions:
         printlen(self.pools.query('~is_predicted & is_queued'), 'pools in the queue')
         printlen(self.pools.query('is_missing'), 'pools missing')
 
-def read_summary_confidences(path):
-    pp = PooledPredictions(path)
-    return pp.summary_confidences
+#def read_summary_confidences(path):
+#    pp = PooledPredictions(path)
+#    return pp.summary_confidences
 
 def chain_pair_iptm_triu(s):
     if type(s) is str:
@@ -128,48 +141,11 @@ def explode_iptms(pools, columns_keep=[], columns_triu=['chain_pair_iptm']):
         #random.shuffle(l_)
         return l_
 
-    pairs = pd.DataFrame({'ids': pools['pool_id'].map(interactions_)})
+    pairs = pd.DataFrame({'pair_ids': pools['pool_id'].map(interactions_)})
     for column in columns_keep:
         pairs[column] = pools[column]
 
     for column in columns_triu:
         pairs[column] = pools[column].map(chain_pair_iptm_triu)
 
-    return pairs.explode(['ids',] + columns_triu).reset_index(drop=True)
-
-class PooledPredictionsDb:
-    def __init__(self, path='/data'):
-        self.path = path
-        self.pairs = pd.read_parquet(os.path.join(self.path, 'predictions/alphafold3_summary_pairs.parquet'))
-        self.pairs['uniprot_id1'] = self.pairs['af3_id1'].str.upper()
-        self.pairs['uniprot_id2'] = self.pairs['af3_id2'].str.upper()
-        print(f'{ul(self.pairs)} pairs / {uf(self.pairs["name"].nunique())} pools')
-
-    def bait_prey(self):
-        pairs_fwd = self.pairs.copy()
-        pairs_fwd['bait_id'] = pairs_fwd['uniprot_id1']
-        pairs_fwd['prey_id'] = pairs_fwd['uniprot_id2']
-
-        pairs_rev = self.pairs.copy()
-        pairs_rev['bait_id'] = pairs_rev['uniprot_id2']
-        pairs_rev['prey_id'] = pairs_rev['uniprot_id1']
-
-        bait_prey = pd.concat([pairs_fwd, pairs_rev], axis=0)
-        return bait_prey
-
-    def save_ids(self, ids, file):
-        parser = Bio.PDB.PDBParser(QUIET=True)
-        struct0 = None
-        with foldcomp.open(os.path.join(self.path, 'predictions-db/predictions-db'), ids=ids) as db:
-            for index, ((name, pdb), chain_id) in enumerate(itertools.islice(zip(db, af3io.input.enumerate_chains()), None)):
-                struct = parser.get_structure(index, io.StringIO(pdb))
-                if index == 0:
-                    struct0 = struct
-                else:
-                    chain0 = next(struct[0].get_chains())
-                    chain0.id = chain_id
-                    struct0[0].add(chain0)
-                
-        pdbio = Bio.PDB.PDBIO()
-        pdbio.set_structure(struct0)
-        pdbio.save(file)
+    return pairs.explode(['pair_ids',] + columns_triu).reset_index(drop=True)
