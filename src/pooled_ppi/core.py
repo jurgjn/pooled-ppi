@@ -1,7 +1,10 @@
 
-import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
+import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, importlib, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
 import numpy as np, pandas as pd
 import tqdm.contrib.concurrent
+
+if importlib.util.find_spec('IPython') is not None:
+    import IPython.display
 
 GUARANTEED_RANDOM = 4 # https://xkcd.com/221
 
@@ -86,3 +89,24 @@ def as_array(s):
     elif type(s) is list:
         return np.array(s)
     return s
+
+def rm_prefix(frame, prefix):
+    frame.columns = [ col.removeprefix(prefix) for col in frame.columns ]
+    return frame
+
+def rm_suffix(frame, prefix):
+    frame.columns = [ col.removesuffix(prefix) for col in frame.columns ]
+    return frame
+
+def dispall(frame, max_rows=100, max_columns=None, max_colwidth=None):
+    if max_rows is None:
+        max_rows = len(frame)
+    with pd.option_context('display.max_rows', max_rows, 'display.max_columns', max_columns, 'display.max_colwidth', max_colwidth):
+        IPython.display.display(frame)
+
+def sorted_pair_id(id1, id2):
+    # sorted pair of uniprot_id-s to compare interacting pairs from different sources
+    if id1 == id1 and id2 == id2:
+        return '_'.join(sorted([id1, id2]))
+    else:
+        return ''
