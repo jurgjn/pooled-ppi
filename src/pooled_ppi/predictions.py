@@ -141,11 +141,19 @@ def explode_iptms(pools, columns_keep=[], columns_triu=['chain_pair_iptm']):
         #random.shuffle(l_)
         return l_
 
-    pairs = pd.DataFrame({'pair_ids': pools['pool_id'].map(interactions_)})
+    def interactions_chains_(s):
+        chains_ = [ chain_id for (af3_id, chain_id) in list(zip(s.split('_'), af3io.input.enumerate_chains())) ]
+        l_ = list(itertools.combinations(chains_, 2))
+        return l_
+
+    pairs = pd.DataFrame({
+        'pair_ids': pools['pool_id'].map(interactions_),
+        'chain_ids': pools['pool_id'].map(interactions_chains_),
+    })
     for column in columns_keep:
         pairs[column] = pools[column]
 
     for column in columns_triu:
         pairs[column] = pools[column].map(chain_pair_iptm_triu)
 
-    return pairs.explode(['pair_ids',] + columns_triu).reset_index(drop=True)
+    return pairs.explode(['pair_ids', 'chain_ids', ] + columns_triu).reset_index(drop=True)
