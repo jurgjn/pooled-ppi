@@ -18,11 +18,18 @@ class SizeCorrection:
             self.predict_baseline = polyfit
         print(self.predict_baseline)
 
-    def transform(self, tokens, scores):
+    def transform_diff(self, tokens, scores):
         data_ = pd.DataFrame({'tokens': tokens, 'scores': scores})
         data_['tokens_sqrt'] = data_['tokens'].map(math.sqrt)
         data_['baseline'] = self.predict_baseline(data_.tokens_sqrt)
         data_['scores_corrected'] = data_['scores'] - data_['baseline']       
+        return data_['scores_corrected']
+
+    def transform_ratio(self, tokens, scores):
+        data_ = pd.DataFrame({'tokens': tokens, 'scores': scores})
+        data_['tokens_sqrt'] = data_['tokens'].map(math.sqrt)
+        data_['baseline'] = self.predict_baseline(data_.tokens_sqrt)
+        data_['scores_corrected'] = data_['scores'] / data_['baseline']
         return data_['scores_corrected']
 
     def transform_plot(self, tokens, scores):

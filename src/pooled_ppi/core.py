@@ -14,6 +14,9 @@ def uf(x):
 def ul(x):
     return uf(len(x))
 
+def format_pct(x):
+    return '({:.2f}%)'.format(x)
+
 def printsrc(*args, **kwargs):
     """
         https://stackoverflow.com/questions/3056048/filename-and-line-number-of-python-script
@@ -36,6 +39,12 @@ def printlen(x, *args, **kwargs):
         print(f'{name_}:', uf(len(x)), *args, **kwargs)
     else:
         print(uf(len(x)), *args, **kwargs)
+
+def printlenq(frame, q, *args, **kwargs):
+    n_q = len(frame.query(q))
+    n = len(frame)
+    f = n_q / n
+    print(uf(n_q), 'of', uf(n), format_pct(100*f),  *args, **kwargs)
 
 @functools.cache
 def guess_prefix(euler_prefix, local_prefix):
@@ -60,8 +69,8 @@ def flatten(l):
 @functools.cache
 def get_max_workers():
     try:
-        ntasks = int(os.environ['SLURM_NTASKS'])
-        source = 'SLURM_NTASKS'
+        ntasks = int(os.environ['SLURM_NTASKS']) * int(os.environ['SLURM_CPUS_PER_TASK'])
+        source = 'SLURM_NTASKS * SLURM_CPUS_PER_TASK'
     except:
         ntasks = int(subprocess.check_output(['nproc', '--all']))
         source = 'nproc --all'
@@ -110,3 +119,12 @@ def sorted_pair_id(id1, id2):
         return '_'.join(sorted([id1, id2]))
     else:
         return ''
+
+def parse_varstr(s):
+    # df_var[['uniprot_id', 'aa_pos', 'aa_ref', 'aa_alt']] = df_var.apply(lambda r: parse_varstr(r['protein_variant']), axis=1, result_type='expand')
+    uniprot_id, variant_id = s.split('/')
+    aa_pos = int(variant_id[1:-1])
+    aa_ref = variant_id[0]
+    aa_alt = variant_id[-1]
+    #print(uniprot_id, aa_pos, aa_ref, aa_alt)
+    return uniprot_id, aa_pos, aa_ref, aa_alt
