@@ -117,18 +117,14 @@ def agg_chain_pair_iptms(frame):
         chain_pair_iptm_max = max across samples
         chain_pair_iptm_mean = mean across samples
     """
-    # np.array([np.array([[1,2], [3,4]]), np.array([[4,3], [2,1]]), np.array([[1,1], [1,1]])]).max(axis=0)
-    chain_pair_iptm_best = np.stack(as_array(frame.sort_values('ranking_score', ascending=False).head(1)['chain_pair_iptm'].squeeze()))
+    chain_pair_iptm_best = frame.sort_values('ranking_score', ascending=False).head(1)['chain_pair_iptm'].squeeze()
 
-    chain_pair_iptm_list = list(frame['chain_pair_iptm'].map(as_array))
-    #chain_pair_iptm_max = np.maximum.reduce(chain_pair_iptm_list)
+    chain_pair_iptm_values = np.stack(frame['chain_pair_iptm'])
+    chain_pair_iptm_max = chain_pair_iptm_values.max(axis=0)
+    chain_pair_iptm_argmax = chain_pair_iptm_values.argmax(axis=0)
+    chain_pair_iptm_mean = chain_pair_iptm_values.mean(axis=0)
 
-    chain_pair_iptm_array = np.array(chain_pair_iptm_list)
-    #chain_pair_iptm_max = chain_pair_iptm_array.max(axis=0)
-    chain_pair_iptm_mean = np.stack(chain_pair_iptm_array.mean(axis=0))
-
-    #return pd.Series([chain_pair_iptm_best, chain_pair_iptm_max, chain_pair_iptm_mean], index=['chain_pair_iptm_best', 'chain_pair_iptm_max', 'chain_pair_iptm_mean'])
-    return pd.Series([chain_pair_iptm_best, chain_pair_iptm_mean], index=['chain_pair_iptm_best', 'chain_pair_iptm_mean'])
+    return pd.Series([chain_pair_iptm_best, chain_pair_iptm_max, chain_pair_iptm_argmax, chain_pair_iptm_mean], index=['chain_pair_iptm_best', 'chain_pair_iptm_max', 'chain_pair_iptm_argmax', 'chain_pair_iptm_mean'])
 
 def explode_iptms(pools, columns_keep=[], columns_triu=['chain_pair_iptm']):
     """
