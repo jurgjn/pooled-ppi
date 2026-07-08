@@ -1,10 +1,10 @@
 
 import itertools, math
 import numpy as np, scipy as sp, pandas as pd, matplotlib.pyplot as plt, seaborn as sns, sklearn, sklearn.metrics
-import pooled_ppi, pooled_ppi_yeast as yp
 import sklearn, sklearn.metrics
 
 from .core import *
+from . import yeast_pools as yp
 
 def bin_labels(bins):
     for bin_i, bin_j in itertools.pairwise(bins):

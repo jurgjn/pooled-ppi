@@ -33,6 +33,27 @@ def get_proteins(cols=None):
     proteins['protein'] = proteins['uniprot_entry'].str.removesuffix('_YEAST') + '/' + proteins['uniprot_locus'] + '/' + proteins['uniprot_id']
     return proteins
 
+def merge_af3_id(frame, frame_on, proteins_on, suffix=''):
+    # proteins_on is either uniprot_id or uniprot_locus
+    mapping = get_proteins().set_index(proteins_on)['af3_id'].to_dict()
+    af3_id_col = f'af3_id{suffix}'
+    frame_ = frame.copy()
+    frame_[af3_id_col] = frame_[frame_on].map(mapping)
+    frame_ = frame_.query(f'{af3_id_col} == {af3_id_col}').reset_index(drop=True)
+    print(f'{ul(frame_)} of {ul(frame)} rows mapped via {frame_on}/{proteins_on}')
+    return frame_
+
+def merge_af3_pair(frame, on1, on2, proteins_on, prefix):
+    frame_ = frame.copy()
+    frame_ = merge_af3_id(frame_, on1, proteins_on, suffix='1')
+    frame_ = merge_af3_id(frame_, on2, proteins_on, suffix='2')
+    frame_['af3_pair'] = np.where(
+        frame_['af3_id1'] < frame_['af3_id2'],
+        frame_['af3_id1'] + '_' + frame_['af3_id2'],
+        frame_['af3_id2'] + '_' + frame_['af3_id1'],
+    )
+    return frame_.set_index('af3_pair').add_prefix(f'{prefix}:')
+
 def get_head(path, nrows=1):
     return next(pq.ParquetFile(get_path(path)).iter_batches(batch_size=nrows)).to_pandas().transpose()
 
@@ -141,7 +162,6 @@ def get_pair_pdb(pairs_row):
     key1 = f'{pairs_row.name.squeeze()}_{pairs_row.af3_id1.squeeze()}'
     key2 = f'{pairs_row.name.squeeze()}_{pairs_row.af3_id2.squeeze()}'
     return load_predictions_db_ids([key1, key2])
-
 
 def sample_controls(pairs, col_pos, col_neg, neg_ratio=1000):
     n_pos = len(pairs.query(col_pos))

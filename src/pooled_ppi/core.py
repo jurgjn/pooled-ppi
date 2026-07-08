@@ -94,10 +94,8 @@ def parallel_from_records(fn, *iterables, columns):
 
 def as_array(s):
     if type(s) is str:
-        return np.array(json.loads(s))
-    elif type(s) is list:
-        return np.array(s)
-    return s
+        s = json.loads(s)
+    return np.asarray(s, dtype=float)
 
 def rm_prefix(frame, prefix):
     frame.columns = [ col.removeprefix(prefix) for col in frame.columns ]

@@ -5,7 +5,7 @@ from cached_path import cached_path
 from pooled_ppi.core import *
 
 @functools.cache
-def read(subset='ALL', version='5.0.255'):
+def read(subset='ALL', version='5.0.259'):
     path = cached_path(f'https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-{version}/BIOGRID-{subset}-{version}.tab3.zip')
     with zipfile.ZipFile(path, 'r') as zf:
         df_ = pd.read_csv(zf.open(f'BIOGRID-{subset}-{version}.tab3.txt'), sep='\t',
@@ -18,7 +18,7 @@ def read(subset='ALL', version='5.0.255'):
             },
             #nrows=1000
         )
-    printlen(df_, 'raw records')
+    printlen(df_, f'raw records from {version}')
 
     q_ = '(`Organism Name Interactor A` == "Saccharomyces cerevisiae (S288c)") & (`Organism Name Interactor B` == "Saccharomyces cerevisiae (S288c)")'
     df_ = df_.query(q_).reset_index(drop=True)

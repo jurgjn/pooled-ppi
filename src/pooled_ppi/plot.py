@@ -31,3 +31,6 @@ def summary_pairs_venn3(data_, queries, title=None):
     )
     if title is not None:
         plt.gca().set_title(title)
+
+def ax_format_uf(ax):
+    ax.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda x, pos: f'{int(x):,}'))
