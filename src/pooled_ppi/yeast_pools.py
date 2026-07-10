@@ -117,13 +117,13 @@ def get_pools_nunique():
 def get_pools_total():
     return _num_rows(get_path('pools.parquet'))
 
-def get_predictions_db(ids):
+def open_predictions_db(ids):
     return foldcomp.open(get_path('predictions-db/predictions-db'), ids=ids)
 
-def read_predictions_db_ids(ids):
+def load_predictions_db(ids):
     parser = Bio.PDB.PDBParser(QUIET=True)
     struct0 = None
-    with get_predictions_db(ids) as db:
+    with open_predictions_db(ids) as db:
         for index, ((name, pdb), chain_id) in enumerate(itertools.islice(zip(db, af3io.input.enumerate_chains()), None)):
             struct = parser.get_structure(index, io.StringIO(pdb))
             if index == 0:
@@ -134,34 +134,29 @@ def read_predictions_db_ids(ids):
                 struct0[0].add(chain0)
     return struct0
 
-def save_predictions_db_ids(ids, file):
-    parser = Bio.PDB.PDBParser(QUIET=True)
-    struct0 = None
-    with get_predictions_db(ids) as db:
-        for index, ((name, pdb), chain_id) in enumerate(itertools.islice(zip(db, af3io.input.enumerate_chains()), None)):
-            struct = parser.get_structure(index, io.StringIO(pdb))
-            if index == 0:
-                struct0 = struct
-            else:
-                chain0 = next(struct[0].get_chains())
-                chain0.id = chain_id
-                struct0[0].add(chain0)
-
+def save_predictions_db(ids, file):
+    struct = load_predictions_db(ids)
     pdbio = Bio.PDB.PDBIO()
-    pdbio.set_structure(struct0)
+    pdbio.set_structure(struct)
     pdbio.save(file)
 
-def load_predictions_db_ids(ids):
+def read_predictions_db(ids):
     # Fetch PDB-formatted string with the interaction chains from foldcomp
-    pdb_io = io.StringIO()
-    save_predictions_db_ids(ids, pdb_io)
-    pdb_io.seek(0)
-    return pdb_io.read()
+    pdbio = io.StringIO()
+    save_predictions_db(ids, pdbio)
+    pdbio.seek(0)
+    return pdbio.read()
+
+def get_models(filters=None):
+    pairs = pd.read_parquet(get_path('summary_models.parquet'), filters=filters)
+    pairs['db_id1'] = pairs['input_name'] + '_' + pairs['sample'].astype(str) + '_' + pairs['chain_id1']
+    pairs['db_id2'] = pairs['input_name'] + '_' + pairs['sample'].astype(str) + '_' + pairs['chain_id2']
+    return pairs
 
 def get_pair_pdb(pairs_row):
     key1 = f'{pairs_row.name.squeeze()}_{pairs_row.af3_id1.squeeze()}'
     key2 = f'{pairs_row.name.squeeze()}_{pairs_row.af3_id2.squeeze()}'
-    return load_predictions_db_ids([key1, key2])
+    return load_predictions_db([key1, key2])
 
 def sample_controls(pairs, col_pos, col_neg, neg_ratio=1000):
     n_pos = len(pairs.query(col_pos))

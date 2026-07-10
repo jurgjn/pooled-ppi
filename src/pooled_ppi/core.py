@@ -105,6 +105,12 @@ def rm_suffix(frame, prefix):
     frame.columns = [ col.removesuffix(prefix) for col in frame.columns ]
     return frame
 
+def recol(frame, cols, cols_rm=[]):
+    cols_etc = frame.columns.tolist()
+    for col in cols:
+        cols_etc.remove(col)
+    return frame[cols + cols_etc].drop(cols_rm, axis=1)
+
 def dispall(frame, max_rows=100, max_columns=None, max_colwidth=None):
     if max_rows is None:
         max_rows = len(frame)
