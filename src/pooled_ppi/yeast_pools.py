@@ -17,7 +17,7 @@ def path(subpath):
  
 @functools.cache
 def get_data():
-    for prefix in map(Path, ['/data', '/workspace/data', '/contents/data', '/cluster/project/beltrao/jjaenes/25.12_pooled-ppi-yeast/data', '/cluster/work/beltrao/jjaenes/25.12_pooled-ppi-yeast/data-26.04']):
+    for prefix in map(Path, ['/data', '/workspace/data', '/contents/data', '/cluster/work/beltrao/jjaenes/25.12_pooled-ppi-yeast/data-26.07']):
         if prefix.is_dir():
             printsrc(f'Using data from: {prefix}')
             return prefix
