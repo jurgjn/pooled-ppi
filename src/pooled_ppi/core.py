@@ -132,3 +132,7 @@ def parse_varstr(s):
     aa_alt = variant_id[-1]
     #print(uniprot_id, aa_pos, aa_ref, aa_alt)
     return uniprot_id, aa_pos, aa_ref, aa_alt
+
+def swapif(frame, id1, id2, col1, col2):
+    swap_rows = frame[id1] > frame[id2]
+    frame.loc[ swap_rows, [col1, col2]] = frame.loc[ swap_rows, [col2, col1]].to_numpy()
