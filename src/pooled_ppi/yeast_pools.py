@@ -158,11 +158,13 @@ def get_pair_pdb(pairs_row):
     key2 = f'{pairs_row.name.squeeze()}_{pairs_row.af3_id2.squeeze()}'
     return load_predictions_db([key1, key2])
 
-def sample_controls(pairs, col_pos, col_neg, neg_ratio=1000):
+def sample_controls(pairs, col_pos, col_neg, neg_ratio=1000, exclude_homodimers=True):
+    if exclude_homodimers:
+        pairs = pairs.query('af3_id1 != af3_id2')
     n_pos = len(pairs.query(col_pos))
     return pd.concat([
-        pairs.query(col_pos).query('af3_id1 != af3_id2').assign(is_positive=True),
-        pairs.query(col_neg).query('af3_id1 != af3_id2').sample(neg_ratio*n_pos, random_state=pooled_ppi.GUARANTEED_RANDOM).assign(is_positive=False),
+        pairs.query(col_pos).assign(is_positive=True),
+        pairs.query(col_neg).sample(neg_ratio*n_pos, random_state=pooled_ppi.GUARANTEED_RANDOM).assign(is_positive=False),
     ]).reset_index(drop=True)
 
 '''
