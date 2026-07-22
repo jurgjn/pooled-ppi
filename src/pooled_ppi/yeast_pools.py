@@ -3,6 +3,8 @@ import argparse, cached_path, collections, collections.abc, copy, functools, glo
 from pathlib import Path
 from pprint import pprint
 
+import sqlite_utils
+
 import numpy as np, pandas as pd, pyarrow as pa, pyarrow.parquet as pq
 import Bio, Bio.PDB, Bio.PDB.mmcifio, foldcomp
 
@@ -117,21 +119,25 @@ def get_pools_nunique():
 def get_pools_total():
     return _num_rows(get_path('pools.parquet'))
 
-def open_predictions_db(ids):
-    return foldcomp.open(get_path('predictions-db/predictions-db'), ids=ids)
-
-def load_predictions_db(ids):
+def load_predictions_db(ids, path='models.sqlite'):
     parser = Bio.PDB.PDBParser(QUIET=True)
     struct0 = None
-    with open_predictions_db(ids) as db:
-        for index, ((name, pdb), chain_id) in enumerate(itertools.islice(zip(db, af3io.input.enumerate_chains()), None)):
-            struct = parser.get_structure(index, io.StringIO(pdb))
-            if index == 0:
-                struct0 = struct
-            else:
-                chain0 = next(struct[0].get_chains())
-                chain0.id = chain_id
-                struct0[0].add(chain0)
+
+    assert os.path.isfile(get_path(path))
+    db = sqlite_utils.Database(get_path(path))
+    for index, (id_, chain_id) in enumerate(itertools.islice(zip(ids, af3io.input.enumerate_chains()), None)):
+        print(index, id_, chain_id)
+        db_id, pdb_str = foldcomp.decompress(db['models'].get(id_)['fcz'])
+        assert db_id == id_
+
+        struct = parser.get_structure(index, io.StringIO(pdb_str))
+        if index == 0:
+            struct0 = struct
+        else:
+            chain0 = next(struct[0].get_chains())
+            chain0.id = chain_id
+            struct0[0].add(chain0)
+
     return struct0
 
 def save_predictions_db(ids, file):
@@ -149,8 +155,8 @@ def read_predictions_db(ids):
 
 def get_models(filters=None):
     pairs = pd.read_parquet(get_path('summary_models.parquet'), filters=filters)
-    pairs['db_id1'] = pairs['input_name_max'] + '_' + pairs['sample_max'].astype(str) + '_' + pairs['chain_id1_max']
-    pairs['db_id2'] = pairs['input_name_max'] + '_' + pairs['sample_max'].astype(str) + '_' + pairs['chain_id2_max']
+    pairs['db_id1'] = pairs['input_name'] + '_' + pairs['sample'].astype(str) + '_' + pairs['chain_id1']
+    pairs['db_id2'] = pairs['input_name'] + '_' + pairs['sample'].astype(str) + '_' + pairs['chain_id2']
     return pairs
 
 def get_pair_pdb(pairs_row):

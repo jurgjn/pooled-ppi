@@ -1,8 +1,19 @@
 
 import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
 import Bio, Bio.PDB, Bio.PDB.mmcifio, Bio.PDB.Polypeptide, Bio.SVDSuperimposer, Bio.SeqUtils
-
+import foldcomp
 import numpy as np
+
+def to_pdbstr(struct):
+    pdbio = Bio.PDB.PDBIO()
+    pdbio.set_structure(struct)
+    buf = io.StringIO()
+    pdbio.save(buf)
+    return buf.getvalue()
+
+def to_fcz(struct, name, path):
+    with open(path, 'wb') as fh:
+        fh.write(foldcomp.compress(name, to_pdbstr(struct)))
 
 def get_structure(path, only_first=True):
     """Attempt to read a structure using Bio.PDB while transparently handling compression/PDB-vs-CIF"""
