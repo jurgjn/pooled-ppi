@@ -1,6 +1,8 @@
 
 import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, importlib, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
 import numpy as np, pandas as pd
+
+import tqdm
 import tqdm.contrib.concurrent
 
 if importlib.util.find_spec('IPython') is not None:
@@ -85,7 +87,9 @@ def parallel_map(fn, *iterables):
     See also:
         https://tqdm.github.io/docs/contrib.concurrent/#process_map
     """
-    return tqdm.contrib.concurrent.process_map(fn, *iterables, max_workers=get_max_workers(), chunksize=10)
+    return tqdm.contrib.concurrent.process_map(fn, *iterables, max_workers=get_max_workers(), chunksize=10,
+        tqdm_class=tqdm.tqdm, ascii=True, file=sys.stdout, # force plain output
+    )
 
 def parallel_from_records(fn, *iterables, columns):
     parallel_map_ = parallel_map(fn, *iterables)
@@ -105,6 +109,10 @@ def rm_suffix(frame, prefix):
     frame.columns = [ col.removesuffix(prefix) for col in frame.columns ]
     return frame
 
+def thead(frame):
+    printlen(frame, 'rows')
+    return frame.head(3).transpose()
+
 def recol(frame, cols, cols_rm=[]):
     cols_etc = frame.columns.tolist()
     for col in cols:
@@ -116,6 +124,10 @@ def dispall(frame, max_rows=100, max_columns=None, max_colwidth=None):
         max_rows = len(frame)
     with pd.option_context('display.max_rows', max_rows, 'display.max_columns', max_columns, 'display.max_colwidth', max_colwidth):
         IPython.display.display(frame)
+
+def printcols(frame):
+    for col in frame.columns:
+        print(col)
 
 def sorted_pair_id(id1, id2):
     # sorted pair of uniprot_id-s to compare interacting pairs from different sources

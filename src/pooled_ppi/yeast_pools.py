@@ -6,6 +6,7 @@ from pprint import pprint
 import sqlite_utils
 
 import numpy as np, pandas as pd, pyarrow as pa, pyarrow.parquet as pq
+import sklearn, matplotlib.pyplot as plt, seaborn as sns
 import Bio, Bio.PDB, Bio.PDB.mmcifio, foldcomp
 
 import af3io, pooled_ppi
@@ -172,6 +173,15 @@ def sample_controls(pairs, col_pos, col_neg, neg_ratio=1000, exclude_homodimers=
         pairs.query(col_pos).assign(is_positive=True),
         pairs.query(col_neg).sample(neg_ratio*n_pos, random_state=pooled_ppi.GUARANTEED_RANDOM).assign(is_positive=False),
     ]).reset_index(drop=True)
+
+def sample_weights_for_ratio(labels, ratio={0: 1000, 1:1}):
+    counts = labels.value_counts().to_dict()
+    class_weights = {c: ratio[c] / counts[c] for c in counts.keys()}
+    return [class_weights[label] for label in labels]
+
+def savefig(fname, *args, **kwargs):
+    plt.savefig(fname + '.svg', *args, **kwargs, bbox_inches='tight', transparent=True)
+    plt.savefig(fname + '.png', *args, **kwargs, bbox_inches='tight', transparent=True)
 
 '''
 class PooledPredictionsDb:
