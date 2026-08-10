@@ -2,7 +2,7 @@
 import ast, collections, csv, datetime, functools, glob, gzip, hashlib, inspect, io, itertools, json, math, operator, os, os.path, pickle, random, re, requests, shutil, sqlite3, subprocess, string, sys, warnings, zipfile
 import Bio, Bio.PDB, Bio.PDB.mmcifio, Bio.PDB.Polypeptide, Bio.SVDSuperimposer, Bio.SeqUtils
 import foldcomp
-import numpy as np
+import numpy as np, scipy as sp
 
 def to_pdbstr(struct):
     pdbio = Bio.PDB.PDBIO()
@@ -121,3 +121,24 @@ def get_ifresid(path, min_distance=8, min_pLDDT=0, include_resname=True):
         return get_resseqs_resnames(chain1_ifatoms), get_resseqs_resnames(chain2_ifatoms)
     else:
         return get_resseqs(chain1_ifatoms), get_resseqs(chain2_ifatoms)
+
+def carbon_alpha(res):
+    return res['CA']
+
+def pseudo_beta(res):
+    if res.get_resname() != 'GLY' and 'CB' in res:
+        return res['CB']
+    return res['CA'] if 'CA' in res else None
+
+def get_chain_coords(chain, coord_func):
+    return np.asarray( [coord_func(res).coord for res in chain] )
+
+def get_chain_chain_dist(chain1, chain2, coord_func):
+    coords1 = get_chain_coords(chain1, coord_func)
+    coords2 = get_chain_coords(chain2, coord_func)
+    dist = sp.spatial.distance.cdist(coords1, coords2)
+    return dist
+
+def get_pep_pep_dist(chain1, chain2, start1, end1, start2, end2, agg_func=np.mean, coord_func=pseudo_beta):
+    dist = get_chain_chain_dist(chain1, chain2, coord_func)
+    return agg_func(dist[start1 - 1:end1][start2 - 1:end2])
