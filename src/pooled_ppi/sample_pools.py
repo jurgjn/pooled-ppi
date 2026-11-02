@@ -74,7 +74,19 @@ def update_coverage_numba(pool_ix, covered, sizes, uncovered_weight_per_protein)
                 newly_covered_count += 1
     return newly_covered_count
 
-def generate_pools(sizes, max_size=5120, skip_pairs=[], rng = np.random.default_rng(seed=4)):
+def generate_pools(sizes, max_size=5120, skip_pairs=[], rng=None):
+    """Shuffle protein order (randomising greedy tie-breaks), then generate pools using the original indices."""
+    if rng is None:
+        rng = np.random.default_rng(seed=4)
+    sizes = np.asarray(sizes)
+    n = len(sizes)
+    perm = rng.permutation(n)
+    inv = np.argsort(perm)
+    skip_pairs_perm = [(inv[i], inv[j]) for i, j in skip_pairs if i < n and j < n]
+    for pool_ix, pool_size in _generate_pools(sizes[perm], max_size=max_size, skip_pairs=skip_pairs_perm):
+        yield set(perm[list(pool_ix)].tolist()), pool_size
+
+def _generate_pools(sizes, max_size=5120, skip_pairs=[]):
     n = len(sizes)
     covered = np.zeros((n, n), dtype=np.uint8)
     np.fill_diagonal(covered, 1)
@@ -147,6 +159,7 @@ def main():
     parser.add_argument("--init_pools", "-p", help="Pools to skip")
     parser.add_argument("--max_pool_size", "-s", help="Maximum size for pool", default=5120, type=int)
     parser.add_argument("--max_pools", "-n", help="Maximum number of pools to sample", type=int)
+    parser.add_argument("--seed", help="Seed for the random number generator", default=4, type=int)
     args = parser.parse_args()
 
     # Read input protein information from stdin
@@ -173,7 +186,7 @@ def main():
     pools_data_ixs = []
 
     # Generate pools using the optimized algorithm
-    pool_gen = generate_pools(sizes, max_size=args.max_pool_size, skip_pairs=skip_pairs)
+    pool_gen = generate_pools(sizes, max_size=args.max_pool_size, skip_pairs=skip_pairs, rng=np.random.default_rng(seed=args.seed))
     if args.max_pools is not None:
         pool_gen = itertools.islice(pool_gen, args.max_pools)
 
