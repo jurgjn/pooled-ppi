@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "jurgjn", email = "jurgjn@users.noreply.github.com" }
 ]
-requires-python = ">=3.10"
+requires-python = "==3.13.*"
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Operating System :: OS Independent",
@@ -17,11 +17,19 @@ license-files = ["LICENSE"]
 dependencies = [
     "af3io",
     "biopython",
+    "brokenaxes",
     "cached-path",
+    "dash",
+    "dash-molstar",
     "foldcomp",
     "matplotlib",
+    "matplotlib-venn",
     "numba",
+    "numpy",
     "pandas",
+    "pyarrow",
+    "requests",
+    "scikit-learn",
     "seaborn",
     "scipy",
     "tqdm",
